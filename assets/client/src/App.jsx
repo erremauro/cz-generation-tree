@@ -199,6 +199,7 @@ export default function App({ context, initialProps }) {
         ctx={context}
         view={view}
         setView={setView}
+        onLocalSearchChange={(v) => setLocalQuery(v)}
         roots={roots}
         rootId={rootId}
         onChangeRoot={(id) => (id ? setParam('root_id', String(id)) : delParam('root_id'))}
@@ -215,7 +216,7 @@ export default function App({ context, initialProps }) {
         {error   && <p style={{ color: 'crimson' }}>{context?.i18n?.error || 'Errore'}: {error}</p>}
         {!loading && !error && (
           <TreeList
-            nodes={nodes}
+            nodes={displayNodes}
             view={view}
             onOpen={(url) => { if (url) window.location.href = url; }}
             onPickMaster={(id) => {

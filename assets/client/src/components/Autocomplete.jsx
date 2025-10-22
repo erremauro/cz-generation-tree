@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { fetchTerms } from '../api';
+import { fetchTerms } from '../api.js';
 
 // Debounce semplice
 function useDebounced(value, ms = 250) {
