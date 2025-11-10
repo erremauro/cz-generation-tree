@@ -231,6 +231,32 @@ final class Tree_Controller {
         $q = $repo->query($params);
         [$nodes, $edges] = $repo->build_graph($q);
 
+        // === NEW: Ancestor hydration per garantire la connettività se il parent è fuori dai filtri ===
+        if ($from_node) {
+            // 1) Assicurati che from_node sia presente
+            if (!isset($nodes[$from_node])) {
+                [$n, $es] = $repo->hydrate_node($from_node);
+                if ($n) { $nodes[$from_node] = $n; $edges = array_merge($edges, $es); }
+            }
+            // 2) Risali gli antenati finché non trovi un nodo già incluso o arrivi alla radice
+            $cursor = $from_node;
+            $guard  = 0;
+            while ($guard++ < 1000) { // hard guard contro loop
+                $parent = (int)($nodes[$cursor]['is_dharma_heir_of'] ?? 0);
+                if ($parent <= 0) break;
+                if (!isset($nodes[$parent])) {
+                    [$pn, $pes] = $repo->hydrate_node($parent);
+                    if ($pn) { $nodes[$parent] = $pn; $edges = array_merge($edges, $pes); }
+                }
+                // Se il parent esiste, prosegui a risalire
+                if (!isset($nodes[$parent])) break;
+                // Se abbiamo raggiunto un parent già incluso in origine, possiamo fermarci
+                // (ma mantenerlo così rende robusto anche il caso di catena lunga)
+                $cursor = $parent;
+            }
+        }
+
+
         if (!$root_id && $from_node && isset($nodes[$from_node])) {
             $root_id = $this->pick_parent_from_node($nodes, $edges, $from_node, $root_strategy);
         }

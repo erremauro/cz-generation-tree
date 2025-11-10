@@ -4,9 +4,11 @@ import { fetchTree, fetchSubtree, fetchRoots, fetchTerms } from './api.js';
 import useQueryParams from './hooks/useQueryParams.js';
 import Toolbar from './components/Toolbar.jsx';
 import TreeList from './components/TreeList.jsx';
+import TreeGraph from './components/TreeGraph.jsx';
+import { decodeEntities } from './utils/text.js';
 
 function normalizeView(v) {
-  return v === 'subtree' ? 'subtree' : 'tree';
+  return (v === 'subtree' || v === 'graph') ? v : 'tree';
 }
 
 export default function App({ context, initialProps }) {
@@ -29,6 +31,8 @@ export default function App({ context, initialProps }) {
       delParam('view');
       delParam('root_id');
       delParam('max_depth');
+      delParam('from_node');
+      delParam('orientation');
     } else {
       setParam('view', v);
     }
@@ -50,7 +54,7 @@ export default function App({ context, initialProps }) {
   const filters = useMemo(() => {
     const p = new URLSearchParams(params.toString());
     const out = {};
-    ['school','generazione','search','include','exclude','order','limit','offset','from_node','root_strategy']
+    ['school','generazione','search','include','exclude','order','limit','offset','from_node','root_strategy','orientation']
       .forEach(k => { if (p.has(k) && p.get(k) !== '') out[k] = p.get(k); });
     return out;
   }, [params]);
@@ -79,7 +83,7 @@ export default function App({ context, initialProps }) {
     return () => { ignore = true; };
   }, [context]);
 
-  // carica roots (serve per fallback automatico se usi root_id)
+  // carica roots
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -97,9 +101,9 @@ export default function App({ context, initialProps }) {
     return () => { ignore = true; };
   }, [context, filters.school, filters.generazione, filters.search]);
 
-  // se sono in subtree e NON sto usando from_node, prova a selezionare auto una root
+  // auto-root in subtree/graph se non impostata
   useEffect(() => {
-    if (view !== 'subtree') return;
+    if (view === 'tree') return;
     if (filters.from_node) return;
     if (rootId) return;
     if (Array.isArray(roots) && roots.length > 0) {
@@ -116,7 +120,7 @@ export default function App({ context, initialProps }) {
 
     (async () => {
       try {
-        const data = (view === 'subtree')
+        const data = (view === 'subtree' || view === 'graph')
           ? await fetchSubtree(context, {
               ...filters,
               root_id: filters.from_node ? undefined : (rootId || undefined),
@@ -126,8 +130,7 @@ export default function App({ context, initialProps }) {
 
         if (!ignore) setNodes(data?.nodes || []);
       } catch (e) {
-        // fallback root auto su subtree
-        if (view === 'subtree' && (!rootId || String(e?.message || '').includes('HTTP 400'))) {
+        if ((view === 'subtree' || view === 'graph') && (!rootId || String(e?.message || '').includes('HTTP 400'))) {
           try {
             const r = await fetchRoots(context, {
               school: filters.school,
@@ -151,18 +154,16 @@ export default function App({ context, initialProps }) {
     return () => { ignore = true; };
   }, [context, view, rootId, maxDepth, filters, setParam]);
 
-  // Filtro + Ordinamento client-side
+  // Filtro + Ordinamento client-side (per lista)
   const displayNodes = useMemo(() => {
     let list = nodes;
 
     if (view === 'tree') {
-      // filtro live
       const q = (localQuery || '').trim().toLowerCase();
       if (q) {
-        const has = (s) => typeof s === 'string' && s.toLowerCase().includes(q);
+        const has = (s) => typeof s === 'string' && decodeEntities(s).toLowerCase().includes(q);
         list = list.filter(n => has(n.name) || has(n.hanzi) || has(n.romaji));
       }
-      // ordina per nome
       list = [...list].sort((a, b) => {
         const an = (a.name || '').toLowerCase();
         const bn = (b.name || '').toLowerCase();
@@ -171,26 +172,32 @@ export default function App({ context, initialProps }) {
       return list;
     }
 
-    // subtree: ordina per generazione, poi nome — invertibile con order
-    const cmpGen = (a, b) => {
-      const ga = Number(a.generation_index ?? Number.MAX_SAFE_INTEGER);
-      const gb = Number(b.generation_index ?? Number.MAX_SAFE_INTEGER);
-      if (ga !== gb) return ga - gb;
-      const an = (a.name || '').toLowerCase();
-      const bn = (b.name || '').toLowerCase();
-      return an.localeCompare(bn);
-    };
+    if (view === 'subtree') {
+      const cmpGen = (a, b) => {
+        const ga = Number(a.generation_index ?? Number.MAX_SAFE_INTEGER);
+        const gb = Number(b.generation_index ?? Number.MAX_SAFE_INTEGER);
+        if (ga !== gb) return ga - gb;
+        const an = (a.name || '').toLowerCase();
+        const bn = (b.name || '').toLowerCase();
+        return an.localeCompare(bn);
+      };
+      list = [...list].sort(cmpGen);
+      if (filters.order === 'desc') list.reverse();
+      return list;
+    }
 
-    list = [...list].sort(cmpGen);
-    if (filters.order === 'desc') list.reverse(); // “ultimo → primo”
-    return list;
+    // graph: l'ordinamento non è rilevante, restituiamo i nodi così come arrivano
+    return nodes;
   }, [nodes, view, localQuery, filters.order]);
 
-  // click sul nome nella vista "Albero Completo" => passa a Discendenza con quel maestro
   const handlePickMaster = (id) => {
-    setParam('view', 'subtree');
-    setParam('from_node', String(id));
-    delParam('root_id'); // eviti conflitti
+    if (view === 'tree') {
+      setParam('view', 'subtree');
+    } else if (view === 'graph') {
+      setParam('view', 'graph');
+    }
+    setParam('root_id', String(id));
+    delParam('from_node');
   };
 
   return (
@@ -211,25 +218,38 @@ export default function App({ context, initialProps }) {
         generationTerms={generationTerms}
       />
 
-      <div className="czgt-body" style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+      <div className="czgt-body">
         {loading && <p>{context?.i18n?.loading || 'Caricamento…'}</p>}
         {error   && <p style={{ color: 'crimson' }}>{context?.i18n?.error || 'Errore'}: {error}</p>}
         {!loading && !error && (
-          <TreeList
-            nodes={displayNodes}
-            view={view}
-            onOpen={(url) => { if (url) window.location.href = url; }}
-            onPickMaster={(id) => {
-              if (!id) return;
-              // clic su nome:
-              // - se sono in "tree", passo a "subtree"
-              // - se sono già in "subtree", cambio solo il from_node
-              if (view !== 'subtree') setView('subtree');
-              setParam('from_node', String(id));
-              // azzero root_id per evitare ambiguità: il backend deduce la radice
-              delParam('root_id');
-            }}
-          />
+          <>
+            {view === 'tree' && (
+              <TreeList
+                nodes={displayNodes}
+                view={view}
+                onOpen={(url) => { if (url) window.location.href = url; }}
+                onPickMaster={handlePickMaster}
+              />
+            )}
+            {view === 'subtree' && (
+              <TreeList
+                nodes={displayNodes}
+                view={view}
+                onOpen={(url) => { if (url) window.location.href = url; }}
+                onPickMaster={handlePickMaster}
+              />
+            )}
+            {view === 'graph' && (
+             <div style={{ height: '100%' }}>
+                <TreeGraph
+                  nodes={displayNodes}
+                  rootId={rootId || Number(filters.from_node || 0)}
+                  orientation={filters.orientation || 'horizontal'}
+                  onPickMaster={handlePickMaster}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

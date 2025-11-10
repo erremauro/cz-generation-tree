@@ -1,6 +1,7 @@
-// components/MasterPicker.jsx
+// assets/client/src/components/MasterPicker.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTree } from '../api.js';
+import { decodeEntities } from '../utils/text.js';
 
 export default function MasterPicker({
   ctx,
@@ -9,7 +10,9 @@ export default function MasterPicker({
   label = 'Seleziona maestro…',
   placeholder = 'Filtra nella lista…',
   width = 360,
-  limit = 5000, // carica tutti i maestri una volta; filtro lato client
+  limit = 5000,
+  allowClear = true,
+  clearLabel = 'Nessuno (rimuovi selezione)',
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -20,7 +23,6 @@ export default function MasterPicker({
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
 
-  // --- load iniziale via fetchTree (no /masters)
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -28,12 +30,11 @@ export default function MasterPicker({
         setBusy(true);
         const data = await fetchTree(ctx, { fields: 'nodes', order: 'asc', limit });
         const raw = Array.isArray(data?.nodes) ? data.nodes : [];
-        // normalizza i campi per il filtro e il rendering
         const norm = raw.map(n => ({
           id: n.id,
-          name: n.name || '',
-          name_hanzi: n.name_hanzi ?? n.hanzi ?? '',
-          name_romaji: n.name_romaji ?? n.romaji ?? '',
+          name: decodeEntities(n.name || ''),
+          name_hanzi: decodeEntities(n.name_hanzi ?? n.hanzi ?? ''),
+          name_romaji: decodeEntities(n.name_romaji ?? n.romaji ?? ''),
         }));
         if (!ignore) setItems(norm);
       } catch {
@@ -45,7 +46,6 @@ export default function MasterPicker({
     return () => { ignore = true; };
   }, [ctx, limit]);
 
-  // chiudi su click fuori / Esc
   useEffect(() => {
     const onDoc = (e) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
@@ -59,7 +59,6 @@ export default function MasterPicker({
     };
   }, []);
 
-  // valore selezionato
   useEffect(() => {
     if (!valueId) { setSelected(null); return; }
     const it = items.find(i => Number(i.id) === Number(valueId));
@@ -74,14 +73,22 @@ export default function MasterPicker({
   }, [items, q]);
 
   const onPick = (it) => {
-    setSelected(it);
+    setSelected(it || null);
     setOpen(false);
     onChange(it ? Number(it.id) : 0);
   };
 
+  const clearSelection = () => {
+    setSelected(null);
+    setQ('');
+    onChange(0);
+  };
+
   const displayLabel = selected
     ? (selected.name || selected.name_romaji || selected.name_hanzi || `#${selected.id}`)
-    : label;
+    : decodeEntities(label);
+
+  const hasClear = Boolean(allowClear && selected);
 
   return (
     <div
@@ -89,20 +96,34 @@ export default function MasterPicker({
       className="czgt-picker"
       style={{ '--czgt-picker-w': `${width}px` }}
     >
-      <button
-        type="button"
-        className="czgt-btn czgt-picker-trigger"
-        aria-haspopup="listbox"
-        aria-expanded={open ? 'true' : 'false'}
-        onClick={() => {
-          setOpen(o => !o);
-          setTimeout(() => inputRef.current?.focus(), 0);
-        }}
-        title={displayLabel}
-      >
-        <span className="czgt-picker-label">{displayLabel}</span>
-        <span className="czgt-caret" aria-hidden>▾</span>
-      </button>
+      <div className="czgt-picker-trigger-wrap">
+        <button
+          type="button"
+          className={`czgt-btn czgt-picker-trigger${hasClear ? ' czgt-picker-trigger--has-clear' : ''}`}
+          aria-haspopup="listbox"
+          aria-expanded={open ? 'true' : 'false'}
+          onClick={() => {
+            setOpen(o => !o);
+            setTimeout(() => inputRef.current?.focus(), 0);
+          }}
+          title={displayLabel}
+        >
+          <span className="czgt-picker-label">{displayLabel}</span>
+          <span className="czgt-caret" aria-hidden>▾</span>
+        </button>
+
+        {hasClear && (
+          <button
+            type="button"
+            className="czgt-picker-clear"
+            onClick={clearSelection}
+            aria-label="Rimuovi selezione"
+            title="Rimuovi selezione"
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       {open && (
         <div className="czgt-popover" role="dialog" aria-label="Scegli maestro">
@@ -119,6 +140,21 @@ export default function MasterPicker({
           </div>
 
           <ul className="czgt-picker-list" role="listbox" aria-label="Maestri">
+            {allowClear && (
+              <li>
+                <button
+                  type="button"
+                  className="czgt-picker-item"
+                  role="option"
+                  aria-selected={!selected}
+                  onClick={() => onPick(null)}
+                  title={clearLabel}
+                >
+                  {clearLabel}
+                </button>
+              </li>
+            )}
+
             {busy && <li className="czgt-muted">Caricamento…</li>}
             {!busy && filtered.length === 0 && <li className="czgt-muted">Nessun risultato</li>}
             {!busy && filtered.map(it => (

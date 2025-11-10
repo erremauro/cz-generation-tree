@@ -17,21 +17,18 @@ final class Shortcode {
         $manifest_path = CZ_GT_PATH . 'assets/dist/.vite/manifest.json';
         if (file_exists($manifest_path)) {
             $manifest = json_decode(file_get_contents($manifest_path), true);
-            // entry definita in vite.config.js come src/main.jsx
             $entry = $manifest['src/main.jsx'] ?? null;
             if ($entry && !empty($entry['file'])) {
                 $js_url  = CZ_GT_URL . 'assets/dist/' . ltrim($entry['file'], '/');
                 $deps    = [];
                 $version = (string) filemtime($manifest_path);
 
-                // CSS collegati all’entry
                 if (!empty($entry['css']) && is_array($entry['css'])) {
                     foreach ($entry['css'] as $css) {
                         $css_url = CZ_GT_URL . 'assets/dist/' . ltrim($css, '/');
                         wp_register_style('cz-gt-app', $css_url, [], $version, 'all');
                     }
                 } else {
-                    // nessun CSS prodotto — registriamo handle vuoto
                     wp_register_style('cz-gt-app', false, [], $version);
                 }
 
@@ -40,7 +37,7 @@ final class Shortcode {
             }
         }
 
-        // 2) Fallback: stub (utile finché non hai buildato)
+        // 2) Fallback: stub
         $js  = CZ_GT_URL . 'assets/js/cz-gt-app.js';
         $css = CZ_GT_URL . 'assets/css/cz-gt-app.css';
         $js_ver  = file_exists(CZ_GT_PATH . 'assets/js/cz-gt-app.js')  ? (string) filemtime(CZ_GT_PATH . 'assets/js/cz-gt-app.js')  : CZ_GT_VERSION;
@@ -51,18 +48,16 @@ final class Shortcode {
 
     public function render($atts = [], $content = null, $tag = ''): string {
         $atts = shortcode_atts([
-            'view'      => 'tree',  // tree | subtree
+            'view'      => 'tree',  // tree | subtree | graph
             'root_id'   => '',
             'max_depth' => '0',
             'height'    => '70vh',
             'class'     => '',
         ], $atts, $tag ?: self::TAG);
 
-        // enqueue asset (manifest o stub)
         wp_enqueue_script('cz-gt-app');
         wp_enqueue_style('cz-gt-app');
 
-        // bootstrap
         $el_id = 'cz-gt-root-' . wp_unique_id();
         $context = [
             'restBase'  => esc_url_raw(rest_url('cz-gt/v1/')),
@@ -74,8 +69,13 @@ final class Shortcode {
                 'error'   => __('Si è verificato un errore', 'cz-generation-tree'),
             ],
         ];
+
+        $view = strtolower($atts['view']);
+        $allowed = ['tree','subtree','graph'];
+        $view = in_array($view, $allowed, true) ? $view : 'tree';
+
         $props = [
-            'view'      => in_array(strtolower($atts['view']), ['tree','subtree'], true) ? strtolower($atts['view']) : 'tree',
+            'view'      => $view,
             'root_id'   => (int) $atts['root_id'],
             'max_depth' => (int) $atts['max_depth'],
             'ui'        => [
