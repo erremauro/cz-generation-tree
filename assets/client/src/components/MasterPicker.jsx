@@ -1,7 +1,7 @@
 // assets/client/src/components/MasterPicker.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTree } from '../api.js';
-import { decodeEntities } from '../utils/text.js';
+import { decodeEntities, foldSearch } from '../utils/text.js';
 
 export default function MasterPicker({
   ctx,
@@ -66,9 +66,9 @@ export default function MasterPicker({
   }, [valueId, items]);
 
   const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
+    const s = foldSearch(q.trim());
     if (!s) return items;
-    const has = (v) => typeof v === 'string' && v.toLowerCase().includes(s);
+    const has = (v) => typeof v === 'string' && foldSearch(v).includes(s);
     return items.filter(n => has(n.name) || has(n.name_hanzi) || has(n.name_romaji));
   }, [items, q]);
 

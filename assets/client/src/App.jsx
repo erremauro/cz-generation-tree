@@ -5,7 +5,7 @@ import useQueryParams from './hooks/useQueryParams.js';
 import Toolbar from './components/Toolbar.jsx';
 import TreeList from './components/TreeList.jsx';
 import TreeGraph from './components/TreeGraph.jsx';
-import { decodeEntities } from './utils/text.js';
+import { foldSearch } from './utils/text.js';
 
 function normalizeView(v) {
   return (v === 'subtree' || v === 'graph') ? v : 'tree';
@@ -159,9 +159,9 @@ export default function App({ context, initialProps }) {
     let list = nodes;
 
     if (view === 'tree') {
-      const q = (localQuery || '').trim().toLowerCase();
+      const q = foldSearch((localQuery || '').trim());
       if (q) {
-        const has = (s) => typeof s === 'string' && decodeEntities(s).toLowerCase().includes(q);
+        const has = (s) => typeof s === 'string' && foldSearch(s).includes(q);
         list = list.filter(n => has(n.name) || has(n.hanzi) || has(n.romaji));
       }
       list = [...list].sort((a, b) => {
